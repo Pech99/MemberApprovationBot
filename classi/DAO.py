@@ -1,12 +1,12 @@
 import json
 from typing import Optional, List
-from .models import GroupSetup, FormStep, JoinRequest
-from . import db_manager  # Importiamo l'utility scritta sopra
+from classi.models import GroupSetup, FormStep, JoinRequest
+import DB.db_manager as db_manager # Importiamo l'utility scritta sopra
 
 class GroupSetupDAO:
     @staticmethod
     async def get_by_chat_id(chat_id: int) -> Optional[GroupSetup]:
-        sql = "SELECT steps FROM group_setups WHERE chat_id = $1"
+        sql = "SELECT steps FROM memberapprovationbot.group_setups WHERE chat_id = $1"
         res = await db_manager.execute(sql, (chat_id,))
         
         if not res:
@@ -18,10 +18,10 @@ class GroupSetupDAO:
         return GroupSetup(chat_id=chat_id, steps=steps_objs)
 
     @staticmethod
-    async def save_or_update(group_setup: GroupSetup) -> None:
+    async def save(group_setup: GroupSetup) -> None:
         steps_json = json.dumps([s.to_dict() for s in group_setup.steps])
         sql = """
-            INSERT INTO group_setups (chat_id, steps) 
+            INSERT INTO memberapprovationbot.group_setups (chat_id, steps) 
             VALUES ($1, $2)
             ON CONFLICT (chat_id) 
             DO UPDATE SET steps = EXCLUDED.steps
@@ -33,7 +33,7 @@ class JoinRequestDAO:
     @staticmethod
     async def create(request: JoinRequest) -> int:
         sql = """
-            INSERT INTO join_requests (user_id, chat_id, username, answers, status) 
+            INSERT INTO memberapprovationbot.join_requests (user_id, chat_id, username, answers, status) 
             VALUES ($1, $2, $3, $4, $5) 
             RETURNING id
         """
@@ -47,7 +47,7 @@ class JoinRequestDAO:
 
     @staticmethod
     async def get_by_id(request_id: int) -> Optional[JoinRequest]:
-        sql = "SELECT id, user_id, chat_id, username, answers, status FROM join_requests WHERE id = $1"
+        sql = "SELECT * FROM memberapprovationbot.join_requests WHERE id = $1"
         res = await db_manager.execute(sql, (request_id,))
         
         if not res:
@@ -65,6 +65,6 @@ class JoinRequestDAO:
 
     @staticmethod
     async def update_status(request_id: int, new_status: str) -> bool:
-        sql = "UPDATE join_requests SET status = $1 WHERE id = $2 AND status = 'pending'"
+        sql = "UPDATE memberapprovationbot.join_requests SET status = $1 WHERE id = $2 AND status = 'pending'"
         rows_affected = await db_manager.perform(sql, (new_status, request_id))
         return rows_affected > 0

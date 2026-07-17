@@ -7,6 +7,9 @@ class FormStep:
         self.type = type        # es. "text", "photo", "video"
         self.question = question # es. "Quanti anni hai?"
 
+    def __str__(self) -> str:
+        return f"[{self.key}, {self.type}] --> { self.question}"
+
     def to_dict(self) -> Dict[str, Any]:
         return {"key": self.key, "type": self.type, "question": self.question}
 
@@ -20,6 +23,9 @@ class GroupSetup:
         self.chat_id = chat_id
         self.steps = steps
 
+    def __str__(self) -> str:
+        return f"[{self.chat_id}] --> {self.steps}"
+
 
 class JoinRequest:
     def __init__(self, id: Optional[int], user_id: int, chat_id: int, username: Optional[str], answers: Dict[str, Any], status: str = "pending"):
@@ -29,3 +35,6 @@ class JoinRequest:
         self.username = username
         self.answers = answers  # Dizionario con le risposte dell'utente
         self.status = status
+
+    def __str__(self) -> str:
+        return f"[{self.username} ({self.user_id}) --> {self.chat_id}]: {self.status}"
