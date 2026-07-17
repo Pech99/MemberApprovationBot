@@ -1,37 +1,31 @@
-from dataclasses import dataclass, field
+import json
 from typing import List, Dict, Any, Optional
 
-@dataclass
 class FormStep:
-    key: str          # Identificativo univoco dello step (es. "nome", "eta")
-    type: str         # "text", "photo", "video", etc.
-    question: str     # Il testo della domanda da mostrare all'utente
+    def __init__(self, key: str, type: str, question: str):
+        self.key = key          # es. "eta"
+        self.type = type        # es. "text", "photo", "video"
+        self.question = question # es. "Quanti anni hai?"
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
-            "key": self.key,
-            "type": self.type,
-            "question": self.question
-        }
+        return {"key": self.key, "type": self.type, "question": self.question}
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'FormStep':
-        return cls(
-            key=data["key"],
-            type=data["type"],
-            question=data["question"]
-        )
+        return cls(key=data["key"], type=data["type"], question=data["question"])
 
-@dataclass
+
 class GroupSetup:
-    chat_id: int
-    steps: List[FormStep] = field(default_factory=list)
+    def __init__(self, chat_id: int, steps: List[FormStep]):
+        self.chat_id = chat_id
+        self.steps = steps
 
-@dataclass
+
 class JoinRequest:
-    id: Optional[int]
-    user_id: int
-    chat_id: int
-    username: Optional[str]
-    answers: Dict[str, Any]  # Dizionario strutturato delle risposte
-    status: str = "pending"
+    def __init__(self, id: Optional[int], user_id: int, chat_id: int, username: Optional[str], answers: Dict[str, Any], status: str = "pending"):
+        self.id = id
+        self.user_id = user_id
+        self.chat_id = chat_id
+        self.username = username
+        self.answers = answers  # Dizionario con le risposte dell'utente
+        self.status = status

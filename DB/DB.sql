@@ -1,3 +1,9 @@
+-- CREATE DATABASE MemberApprovationBotDB;
+DROP SCHEMA MemberApprovationBot CASCADE;
+CREATE SCHEMA MemberApprovationBot;
+SET search_path = MemberApprovationBot;
+
+
 -- 1. Salva la sequenza di passaggi decisa dall'admin per il suo gruppo
 CREATE TABLE IF NOT EXISTS group_setups (
     chat_id BIGINT PRIMARY KEY,

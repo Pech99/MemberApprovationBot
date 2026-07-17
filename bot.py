@@ -3,11 +3,13 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram import Bot, Dispatcher, Router, F, types
 from aiogram.fsm.storage.memory import MemoryStorage     # Sostituisci in prod con PostgresStorage
 from aiogram.fsm.state import State, StatesGroup
+from DB.db_manager import init_db, close_db
 from aiogram.fsm.context import FSMContext
 import logging
 import asyncpg
 import asyncio
 import json
+
 
 # Configura i Log
 logging.basicConfig(level=logging.INFO)
@@ -250,15 +252,20 @@ async def handle_admin_decision(callback: CallbackQuery):
 
 # --- AVVIO BOT ---
 async def main():
-    global db_pool
-    # Connessione asincrona a PostgreSQL
-    db_pool = await asyncpg.create_pool(dsn=DATABASE_URL)
+    # Inizializza il DB manager caricando il file database.ini e impostando lo schema
+    await init_db()
     
+    # Configura il dispatcher (e lo storage FSM come preferisci)
+    dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
     
-    logging.info("Bot in avvio...")
-    await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot)
+    try:
+        logging.info("Bot in avvio...")
+        await bot.delete_webhook(drop_pending_updates=True)
+        await dp.start_polling(bot)
+    finally:
+        # Assicura la chiusura del pool quando il bot si spegne
+        await close_db()
 
 if __name__ == "__main__":
     asyncio.run(main())

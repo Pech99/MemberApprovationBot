@@ -8,3 +8,8 @@ pip install https://github.com/aiogram/aiogram/archive/refs/heads/dev-3.x.zip
 
 
 python3 -m venv /accep/env
+
+
+sudo -i -u postgres
+psql
+ALTER USER postgres PASSWORD 'pass';
