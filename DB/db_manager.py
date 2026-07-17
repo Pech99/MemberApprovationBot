@@ -28,8 +28,8 @@ async def init_db():
     _pool = await asyncpg.create_pool(**config)
     
     # Imposta lo schema (search_path) all'avvio
-    async with _pool.acquire() as conn:
-        await conn.execute("SET search_path TO memberapprovationbot")
+    #async with _pool.acquire() as conn:
+    #    await conn.execute("SET search_path TO memberapprovationbot")
     print('Connected to the PostgreSQL server and schema set.')
 
 async def close_db():

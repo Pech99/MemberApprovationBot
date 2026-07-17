@@ -35,7 +35,7 @@ async def run_database_tests():
         logging.info(f" perform() eseguito con successo. Righe coinvolte/Stato: {rows_affected}")
         
         # 3. Test della funzione EXECUTE (Lettura dati)
-        sql_select = "SELECT chat_id, steps FROM group_setups WHERE chat_id = $1"
+        sql_select = "SELECT chat_id, steps FROM memberapprovationbot.group_setups WHERE chat_id = $1"
         logging.info(f"Esecuzione di execute() per leggere i dati appena inseriti...")
         results = await execute(sql_select, (test_chat_id,))
         
