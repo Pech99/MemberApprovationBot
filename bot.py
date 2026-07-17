@@ -1,45 +1,89 @@
+from aiogram.types import ChatJoinRequest, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram import Bot, Dispatcher, Router, F, types
+from aiogram.fsm.storage.memory import MemoryStorage     # Sostituisci in prod con PostgresStorage
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
-from aiogram.types import ChatJoinRequest
-from aiogram import Router, F
-from aiogram import types
+import logging
+import asyncpg
+import asyncio
+import json
 
+# Configura i Log
+logging.basicConfig(level=logging.INFO)
 
+# Token e credenziali (In produzione usa le variabili d'ambiente!)
+BOT_TOKEN = "IL_TUO_TELEGRAM_BOT_TOKEN"
+DATABASE_URL = "postgresql://utente:password@localhost:5432/nome_db"
+
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher(storage=MemoryStorage()) # In produzione usa PostgresStorage per non pesare sulla RAM
 router = Router()
 
+# Pool di connessione al Database (globale)
+db_pool = None
+
+
+
+
+# --- STATI FSM ---
+class DynamicFormStates(StatesGroup):
+    compilazione = State() # Stato unico per tutta la compilazione dinamica
+
+# --- HELPER DATABASE ---
+async def get_group_steps(chat_id: int):
+    """Recupera il setup dei blocchi per un determinato gruppo"""
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT steps FROM group_setups WHERE chat_id = $1", chat_id)
+        if row:
+            return json.loads(row['steps'])
+        return None
+
+async def save_pending_request(user_id: int, chat_id: int, username: str, answers: dict):
+    """Salva la richiesta pronta nel DB prima del verdetto dell'admin"""
+    async with db_pool.acquire() as conn:
+        return await conn.fetchval(
+            """
+            INSERT INTO join_requests (user_id, chat_id, username, answers) 
+            VALUES ($1, $2, $3, $4) RETURNING id
+            """,
+            user_id, chat_id, username, json.dumps(answers)
+        )
+
+# --- AVVIO FLUSSO (CHAT JOIN REQUEST) ---
 @router.chat_join_request()
 async def handle_join_request(request: ChatJoinRequest, state: FSMContext):
     user_id = request.from_user.id
-    chat_id = request.chat.id  # Il gruppo a cui l'utente vuole accedere
+    chat_id = request.chat.id
     
-    # 1. Recupera da Postgres la configurazione del setup per 'chat_id'
-    # setup_steps = await db.get_group_setup(chat_id)
-    setup_steps = [
-        {"type": "text", "question": "Ciao! Presentati in un messaggio:"},
-        {"type": "photo", "question": "Ora inviaci una foto profilo per conoscerti:"}
-    ] # Simulazione dati da DB
+    # 1. Recupera i passaggi dal DB per questo specifico gruppo
+    steps = await get_group_steps(chat_id)
     
-    if not setup_steps:
-        # Se l'admin non ha impostato domande, lo accettiamo subito!
+    if not steps:
+        # Se il gruppo non ha un setup personalizzato, accettiamo l'utente direttamente
         await request.approve()
+        logging.info(f"Approvato automaticamente {user_id} in {chat_id} (nessun setup configurato).")
         return
 
-    # 2. Inizializziamo il contesto della FSM per questo utente
+    # 2. Inizializza i dati nella FSM
     await state.set_state(DynamicFormStates.compilazione)
-    await state.set_data({
-        "target_chat_id": chat_id, # Il gruppo finale
-        "steps": setup_steps,      # Tutta la lista di passaggi da fare
-        "current_index": 0,        # Partiamo dal primo blocco (indice 0)
-        "answers": {}              # Qui accumuleremo le risposte dell'utente
-    })
+    await state.update_data(
+        steps=steps,
+        current_index=0,
+        answers={},
+        target_chat_id=chat_id,
+        target_chat_title=request.chat.title
+    )
     
-    # 3. Inviamo la prima domanda privatamente all'utente
-    first_question = setup_steps[0]["question"]
-    await request.bot.send_message(
+    # 3. Dai il benvenuto in chat privata e fai la prima domanda
+    await bot.send_message(
         chat_id=user_id,
-        text=f"Benvenuto! Per entrare nel gruppo, rispondi a questa domanda:\n\n{first_question}"
+        text=f"Ciao! Per entrare in <b>{request.chat.title}</b> devi completare una breve presentazione.\n\n"
+             f"<b>Domanda 1:</b> {steps[0]['question']}",
+        parse_mode="HTML"
     )
 
-
+# --- MOTORE DI COMPILAZIONE DINAMICO ---
 @router.message(DynamicFormStates.compilazione)
 async def process_dynamic_step(message: types.Message, state: FSMContext):
     data = await state.get_data()
@@ -50,62 +94,171 @@ async def process_dynamic_step(message: types.Message, state: FSMContext):
     
     current_step = steps[current_index]
     step_type = current_step["type"]
+    step_key = current_step["key"]
+    question_text = current_step["question"]
     
-    # --- VALIDAZIONE DELL'INPUT IN BASE AL TIPO DI BLOCCO ---
-    valid = False
-    answer_value = None
+    valido = False
+    risposta_salvata = None
 
+    # Verifica la corrispondenza del tipo di messaggio inviato rispetto allo step richiesto
     if step_type == "text" and message.text:
-        answer_value = message.text
-        valid = True
+        valido = True
+        risposta_salvata = message.text
+        
     elif step_type == "photo" and message.photo:
-        # Salviamo il file_id della foto con la risoluzione maggiore
-        answer_value = message.photo[-1].file_id
-        valid = True
-    # Puoi espandere qui per "video", "document", ecc.
+        valido = True
+        # Salviamo l'ID della foto con la risoluzione più alta (l'ultima della lista)
+        risposta_salvata = f"PHOTO_ID:{message.photo[-1].file_id}"
+        
+    elif step_type == "video" and message.video:
+        valido = True
+        risposta_salvata = f"VIDEO_ID:{message.video.file_id}"
+        
+    elif step_type == "audio" and message.audio:
+        valido = True
+        risposta_salvata = f"AUDIO_ID:{message.audio.file_id}"
+        
+    elif step_type == "video_note" and message.video_note: # I videomessaggi rotondi
+        valido = True
+        risposta_salvata = f"VIDEONOTE_ID:{message.video_note.file_id}"
 
-    if not valid:
-        await message.answer(f"Formato non valido. Per favore, invia il tipo richiesto: {step_type}")
+    # Se l'utente invia un formato sbagliato (es. manda un testo quando serviva una foto)
+    if not valido:
+        await message.reply(f"Formato non valido. Per questo passaggio è richiesto un file di tipo: <b>{step_type}</b>.")
         return
 
-    # --- SALVATAGGIO DELLA RISPOSTA ---
-    answers[f"step_{current_index}"] = {
-        "question": current_step["question"],
-        "answer": answer_value,
-        "type": step_type
+    # Salva la risposta corrente nel dizionario temporaneo della FSM
+    answers[step_key] = {
+        "question": question_text,
+        "type": step_type,
+        "answer": risposta_salvata
     }
     await state.update_data(answers=answers)
-    
-    # --- VERIFICA SE CI SONO ALTRE DOMANDE ---
+
+    # Avanza all'indice successivo
     next_index = current_index + 1
     if next_index < len(steps):
-        # Passiamo al prossimo step
+        # Ci sono altre domande!
         await state.update_data(current_index=next_index)
-        next_question = steps[next_index]["question"]
-        await message.answer(next_question)
+        next_step = steps[next_index]
+        await message.answer(f"<b>Domanda {next_index + 1}:</b> {next_step['question']}", parse_mode="HTML")
     else:
-        # --- FINE DEL FORM: INVIA LA RICHIESTA AGLI ADMIN ---
-        await state.clear() # Svuota la FSM dell'utente
+        # Modulo terminato! Salva la richiesta su DB
+        request_id = await save_pending_request(
+            user_id=message.from_user.id,
+            chat_id=target_chat_id,
+            username=message.from_user.username,
+            answers=answers
+        )
         
-        await message.answer("Grazie! Le tue risposte sono state inviate agli amministratori. Attendi la conferma. ⏳")
+        await message.answer("Grazie! Le tue risposte sono state inviate agli amministratori. Riceverai una notifica non appena decideranno.")
         
-        # Qui manderai il riepilogo al gruppo admin / chat admin
-        await invia_richiesta_ad_admin(message.bot, target_chat_id, message.from_user, answers)
+        # Notifica gli admin inviando il resoconto
+        await invia_richiesta_ad_admin(message.from_user, target_chat_id, answers, request_id)
+        
+        # Pulisce la FSM per questo utente
+        await state.clear()
 
-
-async def invia_richiesta_ad_admin(bot, group_id, user: types.User, answers: dict):
-    # Costruisci il testo riepilogativo ciclando su 'answers'
-    riepilogo = f"📥 **Nuova richiesta di join** da parte di {user.mention_html()}:\n\n"
-    for key, data in answers.items():
-        riepilogo += f"❓ {data['question']}\n➡️ {data['answer']}\n\n"
+# --- INVIO SCHEDA AD ADMIN ---
+async def invia_richiesta_ad_admin(user: types.User, group_id: int, answers: dict, request_id: int):
+    """Invia il resoconto delle risposte nel gruppo o chat degli admin"""
+    # Costruiamo la tastiera con i callback per gli admin
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ Accetta", callback_data=f"adm_approve_{request_id}"),
+            InlineKeyboardButton(text="❌ Rifiuta", callback_data=f"adm_reject_{request_id}")
+        ]
+    ])
     
-    # Tastiera di approvazione
-    builder = InlineKeyboardBuilder()
-    builder.row(
-        types.InlineKeyboardButton(text="Accetta ✅", callback_data=f"approve_{group_id}_{user.id}"),
-        types.InlineKeyboardButton(text="Rifiuta ❌", callback_data=f"reject_{group_id}_{user.id}")
+    testo_base = f"📥 <b>Nuova richiesta di join!</b>\n" \
+                 f"Utente: {user.mention_html()} (@{user.username or 'Nessun Username'})\n" \
+                 f"ID Utente: <code>{user.id}</code>\n\n"
+    
+    # Inviamo il messaggio agli admin. 
+    # NOTA: Per semplicità inviamo qui lo storico direttamente al gruppo stesso (se il bot è admin lì).
+    # In alternativa, puoi definire un ID di un gruppo di controllo Admin separato.
+    destinatario_admin = group_id 
+
+    await bot.send_message(chat_id=destinatario_admin, text=testo_base, parse_mode="HTML")
+
+    # Cicliamo sulle risposte inviando i media in sequenza se presenti
+    for key, item in answers.items():
+        val = item["answer"]
+        q = item["question"]
+        
+        if isinstance(val, str) and val.startswith("PHOTO_ID:"):
+            await bot.send_photo(chat_id=destinatario_admin, photo=val.replace("PHOTO_ID:", ""), caption=f"❓ {q}")
+        elif isinstance(val, str) and val.startswith("VIDEO_ID:"):
+            await bot.send_video(chat_id=destinatario_admin, video=val.replace("VIDEO_ID:", ""), caption=f"❓ {q}")
+        elif isinstance(val, str) and val.startswith("AUDIO_ID:"):
+            await bot.send_audio(chat_id=destinatario_admin, audio=val.replace("AUDIO_ID:", ""), caption=f"❓ {q}")
+        elif isinstance(val, str) and val.startswith("VIDEONOTE_ID:"):
+            await bot.send_video_note(chat_id=destinatario_admin, video_note=val.replace("VIDEONOTE_ID:", ""))
+        else:
+            await bot.send_message(chat_id=destinatario_admin, text=f"❓ <b>{q}</b>\n➡️ {val}", parse_mode="HTML")
+
+    # Messaggio finale con i pulsanti di azione agganciati all'ID della richiesta
+    await bot.send_message(
+        chat_id=destinatario_admin,
+        text="Scegli come procedere per questa richiesta:",
+        reply_markup=keyboard
     )
+
+# --- AZIONI ADMIN (ACCETTA / RIFIUTA) ---
+@router.callback_query(F.data.startswith("adm_"))
+async def handle_admin_decision(callback: CallbackQuery):
+    azione, request_id_str = callback.data.replace("adm_", "").split("_", 1)
+    request_id = int(request_id_str)
     
-    # Manda il riepilogo (puoi impostare un ID di un gruppo di amministrazione nel DB)
-    admin_chat_id = ... # Recupera da DB dove mandare le richieste per questo gruppo
-    await bot.send_message(chat_id=admin_chat_id, text=riepilogo, reply_markup=builder.as_markup(), parse_mode="HTML")
+    async with db_pool.acquire() as conn:
+        # Recupera i dettagli della richiesta dal DB
+        req = await conn.fetchrow("SELECT user_id, chat_id, status FROM join_requests WHERE id = $1", request_id)
+        
+        if not req:
+            await callback.answer("Richiesta non trovata.", show_alert=True)
+            return
+            
+        if req['status'] != 'pending':
+            await callback.answer(f"Questa richiesta è già stata gestita (Stato: {req['status']}).", show_alert=True)
+            return
+        
+        user_id = req['user_id']
+        chat_id = req['chat_id']
+        
+        if azione == "approve":
+            try:
+                # Approva la richiesta su Telegram
+                await bot.approve_chat_join_request(chat_id=chat_id, user_id=user_id)
+                await conn.execute("UPDATE join_requests SET status = 'approved' WHERE id = $1", request_id)
+                await callback.message.edit_text("✅ Richiesta approvata con successo!")
+                # Notifica l'utente
+                await bot.send_message(chat_id=user_id, text="Complimenti! La tua richiesta di accesso è stata approvata.")
+            except Exception as e:
+                await callback.answer(f"Errore durante l'approvazione: {str(e)}", show_alert=True)
+                
+        elif azione == "reject":
+            try:
+                # Rifiuta la richiesta su Telegram
+                await bot.decline_chat_join_request(chat_id=chat_id, user_id=user_id)
+                await conn.execute("UPDATE join_requests SET status = 'rejected' WHERE id = $1", request_id)
+                await callback.message.edit_text("❌ Richiesta rifiutata.")
+                # Notifica l'utente
+                await bot.send_message(chat_id=user_id, text="Ci dispiace, ma la tua richiesta di accesso è stata rifiutata.")
+            except Exception as e:
+                await callback.answer(f"Errore durante il rifiuto: {str(e)}", show_alert=True)
+
+
+# --- AVVIO BOT ---
+async def main():
+    global db_pool
+    # Connessione asincrona a PostgreSQL
+    db_pool = await asyncpg.create_pool(dsn=DATABASE_URL)
+    
+    dp.include_router(router)
+    
+    logging.info("Bot in avvio...")
+    await bot.delete_webhook(drop_pending_updates=True)
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
