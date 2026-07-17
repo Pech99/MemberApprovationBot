@@ -1,7 +1,7 @@
 -- CREATE DATABASE MemberApprovationBotDB;
-DROP SCHEMA MemberApprovationBot CASCADE;
-CREATE SCHEMA MemberApprovationBot;
-SET search_path = MemberApprovationBot;
+DROP SCHEMA IF EXISTS memberapprovationbot CASCADE;
+CREATE SCHEMA memberapprovationbot;
+SET search_path = memberapprovationbot;
 
 
 -- 1. Salva la sequenza di passaggi decisa dall'admin per il suo gruppo
