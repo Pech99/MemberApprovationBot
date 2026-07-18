@@ -1,7 +1,7 @@
 import json
 from typing import Optional, List
 from classi.models import GroupSetup, FormStep, JoinRequest
-import DB.db_manager as db_manager # Importiamo l'utility scritta sopra
+from DB.db_manager import *
 
 class GroupSetupDAO:
     @staticmethod

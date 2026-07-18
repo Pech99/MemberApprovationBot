@@ -2,7 +2,7 @@ import asyncio
 from configparser import ConfigParser
 from typing import Optional, List, Dict, Any
 import asyncpg
-from ..util.config import load_config
+from util.config import load_config
 
 
 # Pool di connessione globale gestito asincronamente

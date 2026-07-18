@@ -38,3 +38,9 @@ class JoinRequest:
 
     def __str__(self) -> str:
         return f"[{self.username} ({self.user_id}) --> {self.chat_id}]: {self.status}"
+
+
+class JoinRequeStstaus:
+    pending: str = 'pending'
+    approved: str = 'approved'
+    rejected: str = 'rejected'
