@@ -32,26 +32,6 @@ db_pool = None
 class DynamicFormStates(StatesGroup):
     compilazione = State() # Stato unico per tutta la compilazione dinamica
 
-# --- HELPER DATABASE ---
-async def get_group_steps(chat_id: int):
-    """Recupera il setup dei blocchi per un determinato gruppo"""
-    async with db_pool.acquire() as conn:
-        row = await conn.fetchrow("SELECT steps FROM group_setups WHERE chat_id = $1", chat_id)
-        if row:
-            return json.loads(row['steps'])
-        return None
-
-async def save_pending_request(user_id: int, chat_id: int, username: str, answers: dict):
-    """Salva la richiesta pronta nel DB prima del verdetto dell'admin"""
-    async with db_pool.acquire() as conn:
-        return await conn.fetchval(
-            """
-            INSERT INTO join_requests (user_id, chat_id, username, answers) 
-            VALUES ($1, $2, $3, $4) RETURNING id
-            """,
-            user_id, chat_id, username, json.dumps(answers)
-        )
-
 # --- AVVIO FLUSSO (CHAT JOIN REQUEST) ---
 @router.chat_join_request()
 async def handle_join_request(request: ChatJoinRequest, state: FSMContext):
