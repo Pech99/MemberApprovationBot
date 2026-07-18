@@ -14,17 +14,11 @@ import json
 # Configura i Log
 logging.basicConfig(level=logging.INFO)
 
-# Token e credenziali (In produzione usa le variabili d'ambiente!)
-BOT_TOKEN = "IL_TUO_TELEGRAM_BOT_TOKEN"
-DATABASE_URL = "postgresql://utente:password@localhost:5432/nome_db"
+config = load_config(section='telegram')
 
-bot = Bot(token=BOT_TOKEN)
+bot = Bot(token=config['token'])
 dp = Dispatcher(storage=MemoryStorage()) # In produzione usa PostgresStorage per non pesare sulla RAM
 router = Router()
-
-# Pool di connessione al Database (globale)
-db_pool = None
-
 
 
 

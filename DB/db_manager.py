@@ -2,21 +2,8 @@ import asyncio
 from configparser import ConfigParser
 from typing import Optional, List, Dict, Any
 import asyncpg
+from ..util.config import load_config
 
-def load_config(filename='database.ini', section='postgresql') -> dict:
-    parser = ConfigParser()
-    parser.read(filename)
-    config = {}
-    if parser.has_section(section):
-        params = parser.items(section)
-        for param in params:
-            # asyncpg vuole 'database' invece di 'dbname' se usi parametri scompattati,
-            # oppure passiamo direttamente la DSN string, ma per compatibilità mappiamo:
-            key = 'database' if param[0] == 'dbname' else param[0]
-            config[key] = param[1]
-    else:
-        raise Exception(f'Section {section} not found in the {filename} file')
-    return config
 
 # Pool di connessione globale gestito asincronamente
 _pool: Optional[asyncpg.Pool] = None
@@ -24,7 +11,7 @@ _pool: Optional[asyncpg.Pool] = None
 async def init_db():
     """Inizializza il pool globale all'avvio del bot"""
     global _pool
-    config = load_config()
+    config = load_config(section='postgresql')
     _pool = await asyncpg.create_pool(**config)
     
     # Imposta lo schema (search_path) all'avvio
