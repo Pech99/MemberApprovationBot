@@ -2,7 +2,7 @@ import asyncio
 import logging
 import json
 from DB.db_manager import init_db, close_db, execute, perform
-from classi.models import FormStep, JoinRequest, GroupSetup
+from classi.models import Step, JoinRequest, GroupSetup
 from classi.DAO import GroupSetupDAO, JoinRequestDAO
 
 # Configura il logging per vedere eventuali errori o messaggi di log
@@ -64,7 +64,7 @@ async def run_dao_tests():
     """Nuova funzione per testare l'architettura DAO e i Modelli di Dominio"""
     logging.info("=== INIZIO TEST ARCHITETTURA DAO ===")
     
-    test_chat_id = 999999
+    test_chat_id = -1004458942948
     test_user_id = 123456789
     
     try:
@@ -73,8 +73,8 @@ async def run_dao_tests():
         
         # Creiamo una lista di oggetti FormStep (Modello di Dominio)
         lista_step = [
-            FormStep(key="nome", type="text", question="Come ti chiami?"),
-            FormStep(key="regolamento", type="button", question="Accetti il regolamento?")
+            Step(key="nome", type="text", question="Come ti chiami?"),
+            Step(key="regolamento", type="button", question="Accetti il regolamento?")
         ]
         
         # Chiamiamo il metodo del DAO (ipotizzando sia un metodo statico o che accetti la lista)

@@ -1,7 +1,7 @@
 import json
 from typing import Optional, List
-from classi.models import GroupSetup, FormStep, JoinRequest
-from DB.db_manager import *
+from classi.models import GroupSetup, Step, JoinRequest
+from DB import db_manager
 
 class GroupSetupDAO:
     @staticmethod
@@ -14,7 +14,7 @@ class GroupSetupDAO:
         
         # res è una lista di dizionari, prendiamo il primo record
         raw_steps = json.loads(res[0]['steps'])
-        steps_objs = [FormStep.from_dict(s) for s in raw_steps]
+        steps_objs = [Step.from_dict(s) for s in raw_steps]
         return GroupSetup(chat_id=chat_id, steps=steps_objs)
 
     @staticmethod
@@ -33,14 +33,14 @@ class JoinRequestDAO:
     @staticmethod
     async def create(request: JoinRequest) -> int:
         sql = """
-            INSERT INTO memberapprovationbot.join_requests (user_id, chat_id, username, answers, status) 
-            VALUES ($1, $2, $3, $4, $5) 
+            INSERT INTO memberapprovationbot.join_requests (user_id, chat_id, answers, status) 
+            VALUES ($1, $2, $3, $4) 
             RETURNING id
         """
         answers_json = json.dumps(request.answers)
         # perform eseguirà la query e catturerà il RETURNING id rilanciandolo
         request_id = await db_manager.perform(
-            sql, (request.user_id, request.chat_id, request.username, answers_json, request.status)
+            sql, (request.user_id, request.chat_id, answers_json, request.status)
         )
         request.id = request_id
         return request_id
@@ -58,10 +58,32 @@ class JoinRequestDAO:
             id=row['id'],
             user_id=row['user_id'],
             chat_id=row['chat_id'],
-            username=row['username'],
             answers=json.loads(row['answers']),
             status=row['status']
         )
+
+    @staticmethod
+    async def get_by_chat_ids(chat_id: int, user_id: int) -> Optional[JoinRequest]:
+        sql = "SELECT * FROM memberapprovationbot.join_requests WHERE chat_id = $1 AND user_id = $2"
+        res = await db_manager.execute(sql, (chat_id, user_id))
+        if not res:
+            return None
+            
+        row = res[0]
+        return JoinRequest(
+            id=row['id'],
+            user_id=row['user_id'],
+            chat_id=row['chat_id'],
+            answers=json.loads(row['answers']),
+            status=row['status']
+        )
+
+    @staticmethod
+    async def update_answers(request_id: int, answers: str) -> bool:
+        sql = "UPDATE memberapprovationbot.join_requests SET answers = $1 WHERE id = $2"
+        rows_affected = await db_manager.perform(sql, (answers, request_id))
+        return rows_affected > 0
+
 
     @staticmethod
     async def update_status(request_id: int, new_status: str) -> bool:
