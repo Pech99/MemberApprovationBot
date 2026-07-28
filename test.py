@@ -1,7 +1,5 @@
-import asyncio
 import unittest
-from unittest.mock import AsyncMock, patch
-import json
+from unittest.mock import patch
 
 # Import delle classi e dei moduli corretti
 from classi.settings import Settings
@@ -11,7 +9,6 @@ from classi.chat import Chat, ChatType, ChatDAO
 from classi.roles import Role, RoleDAO, RolesType
 from classi.joinRequst import JoinRequest, JoinRequestDAO, JoinRequestStatus
 from classi.message import Message, MessageDAO
-import DB as db_manager  # Corretto per puntare al modulo DB corretto
 
 class TestBotApp(unittest.TestCase):
 
@@ -84,6 +81,11 @@ class TestBotApp(unittest.TestCase):
         with self.assertRaises(Exception):
             JoinRequest(user_id=123, chat_id=456, status="X")
 
+    def test_message_model(self):
+        msg = Message(user_id=123, join_requests_id=10, message=999)
+        self.assertEqual(msg.user_id, 123)
+        self.assertEqual(msg.join_requests_id, 10)
+        self.assertEqual(msg.message, 999)
 
 class TestDAOsAsync(unittest.IsolatedAsyncioTestCase):
 
@@ -156,6 +158,25 @@ class TestDAOsAsync(unittest.IsolatedAsyncioTestCase):
         jr = JoinRequest(user_id=123, chat_id=456)
         req_id = await JoinRequestDAO.create(jr)
         self.assertEqual(req_id, 10)
+
+    @patch('DB.db_manager.execute')
+    async def test_message_dao_get_by_join_requests_id(self, mock_execute):
+        mock_execute.return_value = [{
+            'uten': 123,
+            'join_requests': 10,
+            'message': 999
+        }]
+        messages = await MessageDAO.get_by_join_requests_id(10)
+        self.assertIsNotNone(messages)
+        self.assertIn(123, messages)
+        self.assertEqual(messages[123].message, 999)
+
+    @patch('DB.db_manager.perform')
+    async def test_message_dao_save(self, mock_perform):
+        mock_perform.return_value = 1
+        msg = Message(user_id=123, join_requests_id=10, message=999)
+        res = await MessageDAO.save(msg)
+        self.assertTrue(res)
 
 
 if __name__ == '__main__':

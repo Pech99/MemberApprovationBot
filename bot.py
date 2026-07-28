@@ -22,8 +22,7 @@ dp = Dispatcher()
 # OK Modell e DAO Utenti
 # OK Modell e DAO Gruppi e Canali
 #    Trigger unicit join requet
-
-# Gestione partecpanti e amministratori (con inserimento ed aggiornamento)
+# OK Gestione partecpanti e amministratori (con inserimento ed aggiornamento)
 
 
 
