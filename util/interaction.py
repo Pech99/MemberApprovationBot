@@ -14,7 +14,7 @@ from aiogram.types import (
 )
 
 from classi.DAO import *
-from classi.models import *
+from classi.setup import *
 from util.config import load_config
 
 

@@ -8,7 +8,7 @@ import json
 
 from DB.db_manager import init_db
 from util.config import load_config
-from classi.models import *
+from classi.setup import *
 from classi.DAO import *
 from util.interaction import *
 
@@ -17,12 +17,13 @@ logger = logging.getLogger(__name__)
 
 dp = Dispatcher()
 
-# Tabella Utenti
-# Tabella Gruppi e Canali
-# Modell e DAO Utenti
-# Modell e DAO Gruppi e Canali
-# Trigger unicit join requet
+# OK Tabella Utenti
+# OK Tabella Gruppi e Canali
+# OK Modell e DAO Utenti
+# OK Modell e DAO Gruppi e Canali
+#    Trigger unicit join requet
 
+# Gestione partecpanti e amministratori (con inserimento ed aggiornamento)
 
 
 

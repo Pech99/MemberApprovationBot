@@ -18,7 +18,7 @@ CREATE TABLE chat (
     id          BIGINT PRIMARY KEY,
     tipo        char NOT NULL,
     nome        varchar,
-    steps       JSONB,
+    setup       JSONB,
     settings    JSONB,
     CHECK (upper(tipo)  IN ('G', 'C'))
 );

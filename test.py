@@ -1,141 +1,163 @@
 import asyncio
-import logging
+import unittest
+from unittest.mock import AsyncMock, patch
 import json
-from DB.db_manager import init_db, close_db, execute, perform
-from classi.models import Step, JoinRequest, GroupSetup
-from classi.DAO import GroupSetupDAO, JoinRequestDAO
 
-# Configura il logging per vedere eventuali errori o messaggi di log
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+# Import delle classi e dei moduli corretti
+from classi.settings import Settings
+from classi.setup import Step, GroupSetup, StepType
+from classi.utente import Utente, UtenteDAO
+from classi.chat import Chat, ChatType, ChatDAO
+from classi.roles import Role, RoleDAO, RolesType
+from classi.joinRequst import JoinRequest, JoinRequestDAO, JoinRequestStatus
+from classi.message import Message, MessageDAO
+import DB as db_manager  # Corretto per puntare al modulo DB corretto
 
-async def run_database_tests():
-    logging.info("=== INIZIO TEST DATABASE ===")
-    
-    try:
-        # 1. Test Inizializzazione della Connessione
-        logging.info("Tentativo di connessione al database e impostazione dello schema...")
-        await init_db()
-        logging.info(" Connessione riuscita e search_path impostato.")
+class TestBotApp(unittest.TestCase):
+
+    def run(self, result=None):
+        test_method_name = self._testMethodName
+        print(f"[-] Esecuzione test: {test_method_name}...", end=" ")
         
-        # 2. Test della funzione PERFORM (Scrittura / Inserimento dati)
-        # Creiamo un setup di prova per una chat fittizia (es. chat_id: 999999)
-        test_chat_id = 999999
-        test_steps = json.dumps([
-            {"key": "nome", "type": "text", "question": "Come ti chiami?"},
-            {"key": "regolamento", "type": "button", "question": "Accetti il regolamento?"}
-        ])
+        # Esegue il test e cattura il risultato
+        original_errors_len = len(result.errors) if result else 0
+        original_failures_len = len(result.failures) if result else 0
         
-        sql_insert = """
-            INSERT INTO memberapprovationbot.group_setups (chat_id, steps) 
-            VALUES ($1, $2)
-            ON CONFLICT (chat_id) 
-            DO UPDATE SET steps = EXCLUDED.steps
-        """
+        super().run(result)
         
-        logging.info(f"Esecuzione di perform() per inserire/aggiornare il setup di test per chat_id {test_chat_id}...")
-        rows_affected = await perform(sql_insert, (test_chat_id, test_steps))
-        logging.info(f" perform() eseguito con successo. Righe coinvolte/Stato: {rows_affected}")
-        
-        # 3. Test della funzione EXECUTE (Lettura dati)
-        sql_select = "SELECT chat_id, steps FROM memberapprovationbot.group_setups WHERE chat_id = $1"
-        logging.info(f"Esecuzione di execute() per leggere i dati appena inseriti...")
-        results = await execute(sql_select, (test_chat_id,))
-        
-        logging.info(f" Risultati ricevuti (Tipo: {type(results)}):")
-        print(json.dumps(results, indent=4, ensure_ascii=False))
-        
-        # Semplice asserzione di controllo
-        if results and results[0]['chat_id'] == test_chat_id:
-            logging.info(" Il record estratto corrisponde a quello inserito. Mappatura dizionario OK!")
+        has_failed = (result and (len(result.errors) > original_errors_len or len(result.failures) > original_failures_len))
+        if has_failed:
+            print("\033[91m[FALLITO]\033[0m")
         else:
-            logging.error("❌ Il record estratto non corrisponde o la lista è vuota.")
-            
-    except Exception as e:
-        logging.error(f"❌ TEST FALLITO con errore: {e}", exc_info=True)
+            print("\033[92m[SUCCESSO]\033[0m")
+
+    def test_settings_conversion(self):
+        s = Settings()
+        s.set("lang", "it")
+        self.assertEqual(s.get("lang"), "it")
         
-    finally:
-        # 4. Test della Chiusura del Pool
-        logging.info("Chiusura del pool di connessioni in corso...")
-        await close_db()
-        logging.info("=== FINE TEST DATABASE ===")
+        json_str = s.toJSON()
+        s2 = Settings.fromJSON(json_str)
+        self.assertEqual(s2.get("lang"), "it")
+
+    def test_step_validation(self):
+        step = Step(key="age", type="Message", question="How old are you?", question_type="Message")
+        self.assertEqual(step.key, "age")
+        
+        with self.assertRaises(Exception):
+            Step(key="photo", type="Photo", question="Send photo", question_type="Photo", media=None)
+
+    def test_group_setup(self):
+        step1 = Step(key="q1", type="Message", question="Q1?", question_type="Message")
+        step2 = Step(key="q2", type="Message", question="Q2?", question_type="Message")
+        setup = GroupSetup(steps=[step1, step2])
+        
+        self.assertTrue(setup.hasNext())
+        self.assertEqual(setup.getCurrent().key, "q1")
+        next_step = setup.getNext()
+        self.assertEqual(next_step.key, "q2")
+        self.assertFalse(setup.hasNext())
+
+    def test_utente_model(self):
+        u = Utente(id=123, name="Mario", surname="Rossi", username="mario_rossi")
+        self.assertEqual(str(u), "Mario (123) - mario_rossi")
+
+    def test_chat_model(self):
+        c = Chat(id=456, type=ChatType.Group, name="Test Group")
+        self.assertEqual(str(c), "Test Group (456) - G")
+        
+        with self.assertRaises(Exception):
+            Chat(id=789, type="X", name="Invalid Chat")
+
+    def test_role_model(self):
+        # Corretto parametro grou_id come definito in roles.py
+        r = Role(user_id=123, grup_id=456, role=RolesType.Administrator)
+        self.assertEqual(r.role, "A")
+        
+        with self.assertRaises(Exception):
+            Role(user_id=123, grup_id=456, role="Z")
+
+    def test_join_request_model(self):
+        jr = JoinRequest(user_id=123, chat_id=456, status=JoinRequestStatus.Pending)
+        self.assertEqual(jr.status, "P")
+        
+        with self.assertRaises(Exception):
+            JoinRequest(user_id=123, chat_id=456, status="X")
 
 
-async def run_dao_tests():
-    """Nuova funzione per testare l'architettura DAO e i Modelli di Dominio"""
-    logging.info("=== INIZIO TEST ARCHITETTURA DAO ===")
-    
-    test_chat_id = -1004458942948
-    test_user_id = 123456789
-    
-    try:
-        # 1. TEST GROUP SETUP DAO (Salvataggio Step)
-        logging.info("1. Test inserimento/aggiornamento configurazione step tramite GroupSetupDAO...")
-        
-        # Creiamo una lista di oggetti FormStep (Modello di Dominio)
-        lista_step = [
-            Step(key="nome", type="text", question="Come ti chiami?"),
-            Step(key="regolamento", type="button", question="Accetti il regolamento?")
-        ]
-        
-        # Chiamiamo il metodo del DAO (ipotizzando sia un metodo statico o che accetti la lista)
-        # Nota: adatta il nome del metodo a seconda di come lo hai definito in dao.py (es. save_setup, o set_steps)
-        await GroupSetupDAO.save( GroupSetup(test_chat_id, lista_step))
-        logging.info("✅ Configurazione Step salvata correttamente tramite DAO!")
-        
-        # Recuperiamo gli step appena salvati per verificare la lettura
-        steps_recuperati = await GroupSetupDAO.get_by_chat_id(test_chat_id)
-        logging.info(f"✅ Recupero riuscito! Step trovati: {steps_recuperati}")
-        
-        
-        # 2. TEST JOIN REQUEST DAO (Salvataggio Richieste di Accesso)
-        logging.info("2. Test inserimento richiesta di join tramite JoinRequestDAO...")
-        
-        # Prepariamo un dizionario fittizio con le risposte date dall'utente
-        risposte_test = {
-            "nome": "Mario Rossi",
-            "regolamento": "Sì, accetto"
-        }
-        
-        # Istanziamo il modello JoinRequest
-        nuova_richiesta = JoinRequest(
-            id = 0,
-            user_id=test_user_id,
-            chat_id=test_chat_id,
-            username="mariorossi_tg",
-            answers=risposte_test,
-            status="pending"
-        )
-        
-        # Salviamo la richiesta tramite il rispettivo DAO
-        # Nota: adatta il nome del metodo (es. create_request o insert) basandoti sul tuo dao.py
-        test_id = await JoinRequestDAO.create(nuova_richiesta)
-        logging.info("✅ Richiesta di Join inserita correttamente tramite DAO!")
-        
-        # Recuperiamo le richieste pendenti di quel gruppo per verificare
-        richieta = await JoinRequestDAO.get_by_id(test_id)
-        logging.info(f"✅ Richiesta recuperata: {richieta}")
+class TestDAOsAsync(unittest.IsolatedAsyncioTestCase):
 
-    except Exception as e:
-        logging.error(f"❌ TEST DAO FALLITO con errore:\n{e}")
-        raise e
-
-
-async def main():
-    logging.info("=== TEST DAO ===")
-    # Inizializziamo il pool di connessioni una sola volta all'inizio (legge database.ini e setta lo schema)
-    await init_db()
-    
-    try:
-        # Eseguiamo il nuovo test incentrato sui DAO
-        await run_dao_tests()
+    def run(self, result=None):
+        test_method_name = self._testMethodName
+        print(f"[-] Esecuzione test async: {test_method_name}...", end=" ")
         
-    finally:
-        # Ci assicuriamo di chiudere il pool di connessioni alla fine di tutto
-        logging.info("Chiusura del pool di connessioni in corso...")
-        await close_db()
-        logging.info("=== FINE TEST DAO ===")
+        original_errors_len = len(result.errors) if result else 0
+        original_failures_len = len(result.failures) if result else 0
+        
+        super().run(result)
+        
+        has_failed = (result and (len(result.errors) > original_errors_len or len(result.failures) > original_failures_len))
+        if has_failed:
+            print("\033[91m[FALLITO]\033[0m")
+        else:
+            print("\033[92m[SUCCESSO]\033[0m")
 
-if __name__ == "__main__":
-    # Avviamo il ciclo asincrono
-    asyncio.run(run_database_tests())
-    asyncio.run(main())
+    @patch('DB.db_manager.execute')
+    async def test_utente_dao_get(self, mock_execute):
+        mock_execute.return_value = [{
+            'id': 123,
+            'nome': 'Mario',
+            'cogn': 'Rossi',
+            'username': 'mario',
+            'settings': '{"theme": "dark"}'
+        }]
+        
+        user = await UtenteDAO.get_by_id(123)
+        self.assertIsNotNone(user)
+        self.assertEqual(user.name, 'Mario')
+        self.assertEqual(user.settings.get('theme'), 'dark')
+
+    @patch('DB.db_manager.perform')
+    async def test_utente_dao_save(self, mock_perform):
+        mock_perform.return_value = 1
+        user = Utente(id=123, name="Mario")
+        res = await UtenteDAO.save(user)
+        self.assertTrue(res)
+
+    @patch('DB.db_manager.execute')
+    async def test_chat_dao_get(self, mock_execute):
+        mock_execute.return_value = [{
+            'id': 456,
+            'tipo': 'G',
+            'nome': 'Gruppo Test',
+            'setup': '[]',
+            'settings': '{}'
+        }]
+        chat = await ChatDAO.get_by_id(456)
+        self.assertIsNotNone(chat)
+        self.assertEqual(chat.name, 'Gruppo Test')
+        self.assertEqual(chat.type, ChatType.Group)
+
+    @patch('DB.db_manager.execute')
+    async def test_role_dao_get(self, mock_execute):
+        mock_execute.return_value = [{
+            'uten': 123,
+            'chat': 456,
+            'role': 'A'
+        }]
+        roles = await RoleDAO.get_by_group_id(456)
+        self.assertIsNotNone(roles)
+        self.assertIn(123, roles)
+        self.assertEqual(roles[123].role, 'A')
+
+    @patch('DB.db_manager.perform')
+    async def test_join_request_create(self, mock_perform):
+        mock_perform.return_value = 10
+        jr = JoinRequest(user_id=123, chat_id=456)
+        req_id = await JoinRequestDAO.create(jr)
+        self.assertEqual(req_id, 10)
+
+
+if __name__ == '__main__':
+    print("=== AVVIO DELLA SUITE DI TEST ===")
+    unittest.main(verbosity=0)
